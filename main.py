@@ -1,25 +1,35 @@
 import os
 from Google import Create_Service
 import datetime
-import time
 import pandas as pd
-from nodejs import node
 from twilio.rest import Client
 from dotenv import load_dotenv
+import pygsheets
+import time
 
-# accept post requrests on port 8000
 
 load_dotenv()
-print(os.getenv('twillio_account_sid'))
 
-CLIENT_SECRET_FILE = 'credentials.json'
-API_NAME = 'drive'
-API_VERSION = 'v3'
-SCOPES = ['https://www.googleapis.com/auth/drive']
 
-service = Create_Service(CLIENT_SECRET_FILE, API_NAME, API_VERSION, SCOPES)
+def update_spreadsheet(day_obj):
+    sheet_url = 'https://docs.google.com/spreadsheets/d/16WPCMd_JcduYl-to7wWQXsvDKYzS6TTIgrbjyZwwSfs/'
+    spreadsheet = pygsheets.authorize('./credentials.json')
+    sheet = spreadsheet.open_by_url(sheet_url)
+    curr_sheet = sheet[0]
+    row = 1
+    a1_notation = 'A' + str(row)
+    while (curr_sheet.cell(a1_notation).value != ''):
+        a1_notation = 'A' + str(row)
+        row += 1
 
-folder_id = os.getenv('google_drive_folder_id')
+    current_letter = 'A'
+    row = row - 1
+    a1_notation = current_letter + str(row)
+    for key in day_obj:
+        print(a1_notation)
+        curr_sheet.cell(a1_notation).set_value(day_obj[key])
+        current_letter = chr(ord(current_letter) + 1)
+        a1_notation = current_letter + str(row)
 
 
 def send_text(name, number):
@@ -49,25 +59,43 @@ def send_texts_to_all():
         send_text(name_list[i], phone_number_list[i])
 
 
+def create_next_page(week_num):
+    sheet_url = 'https://docs.google.com/spreadsheets/d/16WPCMd_JcduYl-to7wWQXsvDKYzS6TTIgrbjyZwwSfs/'
+    spreadsheet = pygsheets.authorize('./credentials.json')
+    sheet = spreadsheet.open_by_url(sheet_url)
+    sheet.add_worksheet("Week " + str(week_num), index=0)
+    # set the index of the new worksheet to be the first in sheet
+
+
 def start():
-    i = 0
-    while True:
-        update_dashboard()
-        time.sleep(86380)
-        i += 1
-        if (i == 7):
-            send_texts_to_all()
-            i = 0
+    # update_dashboard()
+    week_num = 20
+    create_next_page(week_num)
+    # i = 0
+    # while True:
+    #     update_dashboard()
+    #     time.sleep(86380)
+    #     i += 1
+    #     week_num++
+    #     if (i == 7):
+    #         i = 0
+    # send_texts_to_all()
 
 
 def update_dashboard():
+    client_secret_file = 'credentials.json'
+    api_name = 'drive'
+    api_version = 'v3'
+    scopes = ['https://www.googleapis.com/auth/drive']
+
+    service = Create_Service(client_secret_file, api_name, api_version, scopes)
+
     yesterday = datetime.datetime.today() - datetime.timedelta(days=1)
     yesterday_formatted = yesterday.strftime('%Y-%m-%d')
 
     file_name = f"HealthMetrics-{yesterday_formatted}.csv"
 
     query = f"name = '{file_name}'"
-    print(query)
     response = service.files().list(q=query).execute()
     print(response)
     file_id = response.get('files')[0].get('id')
@@ -77,18 +105,32 @@ def update_dashboard():
     print(file_url)
     df = pd.read_csv(file_url)
 
+    row_count = df.shape[0] - 1
+
     time_arr = df['Date']
     time_arr = [time.split(' ')[1] for time in time_arr]
 
-    steps_arr = df['Step Count (count) '].dropna()
-    cals_arr = df['Active Energy (kcal)'].dropna()
-    water_arr = df['Dietary Water (fl_oz_us)'].dropna()
+    steps_arr = df['Step Count (count) '].fillna(0)
+    steps_arr = [step.replace(' ', '') for step in steps_arr]
+    steps_arr = [step for step in steps_arr if step != '']
+    steps_arr = [float(step) for step in steps_arr]
+
+    cals_arr = df['Active Energy (kcal)'].fillna(0)
+    water_arr = df['Dietary Water (fl_oz_us)'].fillna(0)
 
     # calculations for sleep_val
-    sleep_asleep_arr = df['Sleep Analysis [Asleep] (hr)'].dropna()
-    sleep_in_bed_arr = df['Sleep Analysis [In Bed] (hr)'].dropna()
+    sleep_asleep_arr = df['Sleep Analysis [Asleep] (hr)'].fillna(0)
+    # convert sleep_asleep_arr to an array
+    sleep_in_bed_arr = df['Sleep Analysis [In Bed] (hr)'].fillna(0)
 
-    sleep_val = (sleep_asleep_arr[0] + sleep_in_bed_arr[0]) / 2
+    # get sum of values in sleep asleep_arr
+    sleep_asleep_sum = 0
+    sleep_in_bed_sum = 0
+    for i in range(0, row_count):
+        sleep_asleep_sum += sleep_asleep_arr[i]
+        sleep_in_bed_sum += sleep_in_bed_arr[i]
+
+    sleep_val = (sleep_asleep_sum + sleep_in_bed_sum) / 2
     sleep_val = round(sleep_val, 2)
 
     # calculations for workout_val
@@ -110,7 +152,7 @@ def update_dashboard():
     proper_workout = workout_dict[workout_name_yesterday]
     if (proper_workout == 'Running'):
         step_sum = 0
-        for i in range(0, 12):
+        for i in range(0, len(steps_arr)):
             step_sum += steps_arr[i]
         workout_pct = step_sum / STEPS_CONST
     if (proper_workout == 'rest'):
@@ -119,18 +161,14 @@ def update_dashboard():
 
     # calculations for water_val
     water_val = round(sum(water_arr))
-
-    notion_obj = {
+    day_obj = {
         'Week Day': yesterday.strftime('%A'),
         'Water (fl oz)': water_val,
-        'Sleep (Hrs)': 6,
+        'Sleep (Hrs)': sleep_val,
         'Exercise (Pct)': workout_pct,
-        'Date': yesterday.isoformat()
+        'Date': yesterday_formatted
     }
-
-    path_arg = "./index.js"
-
-    node.call([path_arg, str(notion_obj)])
+    update_spreadsheet(day_obj)
 
 
 start()
