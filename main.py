@@ -26,7 +26,6 @@ def update_spreadsheet(day_obj):
     row = row - 1
     a1_notation = current_letter + str(row)
     for key in day_obj:
-        print(a1_notation)
         curr_sheet.cell(a1_notation).set_value(day_obj[key])
         current_letter = chr(ord(current_letter) + 1)
         a1_notation = current_letter + str(row)
@@ -63,23 +62,24 @@ def create_next_page(week_num):
     sheet_url = 'https://docs.google.com/spreadsheets/d/16WPCMd_JcduYl-to7wWQXsvDKYzS6TTIgrbjyZwwSfs/'
     spreadsheet = pygsheets.authorize('./credentials.json')
     sheet = spreadsheet.open_by_url(sheet_url)
-    sheet.add_worksheet("Week " + str(week_num), index=0)
-    # set the index of the new worksheet to be the first in sheet
+    src_worksheet = sheet.worksheet_by_title('Template')
+    sheet.add_worksheet("Week " + str(week_num), index=0,
+                        src_worksheet=src_worksheet)
 
 
 def start():
-    # update_dashboard()
-    week_num = 20
-    create_next_page(week_num)
-    # i = 0
-    # while True:
-    #     update_dashboard()
-    #     time.sleep(86380)
-    #     i += 1
-    #     week_num++
-    #     if (i == 7):
-    #         i = 0
-    # send_texts_to_all()
+    week_num = 1
+    i = 0
+    while True:
+        if (i == 0):
+            create_next_page(week_num)
+        update_dashboard()
+        i += 1
+        if (i == 7):
+            i = 0
+            send_texts_to_all()
+            week_num += 1
+        time.sleep(86380)
 
 
 def update_dashboard():
@@ -97,12 +97,10 @@ def update_dashboard():
 
     query = f"name = '{file_name}'"
     response = service.files().list(q=query).execute()
-    print(response)
     file_id = response.get('files')[0].get('id')
 
     file_url = f"https://drive.google.com/uc?id={file_id}"
 
-    print(file_url)
     df = pd.read_csv(file_url)
 
     row_count = df.shape[0] - 1
@@ -144,8 +142,8 @@ def update_dashboard():
         'Sunday': 'Rest'
     }
 
-    CALORIE_CONST = 500
-    STEPS_CONST = 5000
+    CALORIE_CONST = 700
+    STEPS_CONST = 8000
 
     workout_name_yesterday = yesterday.strftime('%A')
     workout_pct = sum(cals_arr) / CALORIE_CONST
